@@ -11,7 +11,6 @@ import { Claude } from '../models/claude.js';
 import { ReplicateAPI } from '../models/replicate.js';
 import { Local } from '../models/local.js';
 
-
 export class Prompter {
     constructor(agent, fp) {
         this.agent = agent;
@@ -93,15 +92,12 @@ export class Prompter {
     }
 
     async initExamples() {
-        // Using Promise.all to implement concurrent processing
-        // Create Examples instances
+        console.log('Loading examples...')
         this.convo_examples = new Examples(this.embedding_model);
+        await this.convo_examples.load(this.profile.conversation_examples);
         this.coding_examples = new Examples(this.embedding_model);
-        // Use Promise.all to load examples concurrently
-        await Promise.all([
-            this.convo_examples.load(this.profile.conversation_examples),
-            this.coding_examples.load(this.profile.coding_examples),
-        ]);
+        await this.coding_examples.load(this.profile.coding_examples);
+        console.log('Examples loaded.');
     }
 
     async replaceStrings(prompt, messages, examples=null, prev_memory=null, to_summarize=[], last_goals=null) {
@@ -127,10 +123,6 @@ export class Prompter {
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
             prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
-        if (prompt.includes('$SELF_PROMPT')) {
-            let self_prompt = this.agent.self_prompter.on ? `Use this self-prompt to guide your behavior: "${this.agent.self_prompter.prompt}"\n` : '';
-            prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
-        }
         if (prompt.includes('$LAST_GOALS')) {
             let goal_text = '';
             for (let goal in last_goals) {
@@ -201,5 +193,66 @@ export class Prompter {
         }
         goal.quantity = parseInt(goal.quantity);
         return goal;
+    }
+
+    async thinkAndImprove(promptType, messages, iterations = 3) {
+        console.log('Initiating self-prompting (thinking) mechanism...');
+
+        let result = null;
+        let thoughts = [];
+
+        for (let i = 0; i < iterations; i++) {
+            // Step 1: Generate the initial response (or improved response)
+            result = await this[`prompt${promptType}`](messages);
+            console.log(`Initial ${promptType} result after iteration ${i+1}:`, result);
+
+            // Step 2: Simulate thinking by self-prompting
+            let introspection = await this.promptThinking(result, thoughts);
+            console.log(`Self-prompted thoughts after iteration ${i+1}:`, introspection);
+
+            // Step 3: Refine the response based on introspection
+            result = await this.refineResponse(result, introspection);
+            console.log(`Refined ${promptType} result after iteration ${i+1}:`, result);
+
+            // Collect thoughts for the next round of introspection
+            thoughts.push(introspection);
+        }
+
+        return result;
+    }
+
+    async promptThinking(result, previousThoughts) {
+        // This method generates internal questions/thoughts about the result.
+        // The AI will analyze the result and prompt itself with introspective questions.
+        let thinking_prompt = `You just generated the following result:\n${result}\n\n` +
+                              `Think carefully: What could be improved? What would the next steps be? ` +
+                              `Do you predict any issues or areas that could be refined? ` +
+                              `Summarize your thoughts based on these questions.`;
+
+        if (previousThoughts.length > 0) {
+            thinking_prompt += `\n\nPrevious thoughts to consider:\n${previousThoughts.join("\n")}`;
+        }
+
+        // Send the "thinking" prompt to the agent to simulate thoughts
+        return await this.chat_model.sendRequest([{ role: 'system', content: thinking_prompt }], '');
+    }
+
+    async refineResponse(originalResponse, introspection) {
+        // Refine the original response based on the "thoughts" generated from introspection.
+        let refinement_prompt = `You previously generated this response:\n${originalResponse}\n\n` +
+                                `Based on the following thoughts, improve or refine it:\n${introspection}`;
+
+        // Generate the refined response
+        return await this.chat_model.sendRequest([{ role: 'system', content: refinement_prompt }], '');
+    }
+
+    // New method to handle the thinking process for a conversation
+    async thinkAndImproveConvo(messages, iterations = 3) {
+        return await this.thinkAndImprove('Convo', messages, iterations);
+    }
+
+    // New method to handle the thinking process for code
+    async thinkAndImproveCoding(messages, iterations = 3) {
+        return await this.thinkAndImprove('Coding', messages, iterations);
     }
 }
