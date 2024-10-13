@@ -222,8 +222,8 @@ export class Prompter {
     }
 
     async promptThinking(result, previousThoughts) {
-        // This method generates internal questions/thoughts about the result.
-        // The AI will analyze the result and prompt itself with introspective questions.
+        // Generate introspection questions
+        // Then analyze result and prompt the model with more responses
         let thinking_prompt = `You just generated the following result:\n${result}\n\n` +
                               `Think carefully: What could be improved? What would the next steps be? ` +
                               `Do you predict any issues or areas that could be refined? ` +
@@ -238,7 +238,7 @@ export class Prompter {
     }
 
     async refineResponse(originalResponse, introspection) {
-        // Refine the original response based on the "thoughts" generated from introspection.
+        // Refine "Thought"
         let refinement_prompt = `You previously generated this response:\n${originalResponse}\n\n` +
                                 `Based on the following thoughts, improve or refine it:\n${introspection}`;
 
